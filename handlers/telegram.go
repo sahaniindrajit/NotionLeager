@@ -29,6 +29,7 @@ type TelegramUpdate struct {
 
 var deduper = expense.NewDeduper(30 * time.Second)
 var CategoryResolver *notion.CategoryResolver
+var notionClient *notion.Client
 
 func init() {
 	cats, fallback := notion.SeedCategories()
@@ -54,9 +55,6 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 		}
 
 		ownerID, _ := strconv.ParseInt(cfg.TelegramOwnerId, 10, 64)
-		if update.Message.From.ID != ownerID {
-			return
-		}
 
 		if update.Message.From.ID != ownerID {
 			w.WriteHeader(http.StatusOK)
@@ -80,12 +78,36 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 		}
 
 		exp, err := expense.Parse(text)
-		category := CategoryResolver.Resolve(exp.CategoryRaw)
 		if err != nil {
 			telegram.SendMessage(
 				cfg.TelegramBotToken,
 				update.Message.Chat.ID,
 				"❌ Invalid format\n\nUse:\nName, Amount, Category, Description (optional)",
+			)
+			return
+		}
+		category := CategoryResolver.Resolve(exp.CategoryRaw)
+
+		if notionClient == nil {
+			notionClient = notion.NewClient(
+				cfg.NotionAPIKey,
+				cfg.NotionExpenseDB,
+			)
+		}
+
+		err = notionClient.CreateExpense(
+			exp.Name,
+			exp.Amount,
+			category.ID,
+			exp.Description,
+		)
+
+		if err != nil {
+			fmt.Printf("Error in saving data in notion ", err)
+			telegram.SendMessage(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				"❌ Failed to save expense",
 			)
 			return
 		}
