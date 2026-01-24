@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"notionLeager/config"
 	"notionLeager/expense"
+	"notionLeager/notion"
 	"notionLeager/telegram"
 	"strconv"
 	"time"
@@ -27,6 +28,12 @@ type TelegramUpdate struct {
 }
 
 var deduper = expense.NewDeduper(30 * time.Second)
+var CategoryResolver *notion.CategoryResolver
+
+func init() {
+	cats, fallback := notion.SeedCategories()
+	CategoryResolver = notion.NewCategoryResolver(cats, fallback)
+}
 
 func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +80,7 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 		}
 
 		exp, err := expense.Parse(text)
+		category := CategoryResolver.Resolve(exp.CategoryRaw)
 		if err != nil {
 			telegram.SendMessage(
 				cfg.TelegramBotToken,
@@ -83,6 +91,12 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 		}
 
 		log.Printf("Parsed expense: %+v\n", exp)
+		log.Printf(
+			"Resolved category: input=%q → %s (%s)\n",
+			exp.CategoryRaw,
+			category.Name,
+			category.ID,
+		)
 
 		w.WriteHeader(http.StatusOK)
 	}
