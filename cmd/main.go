@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"notionLeager/config"
+	"notionLeager/handlers"
 
 	"github.com/joho/godotenv"
 )
@@ -20,6 +21,8 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+
+	http.HandleFunc("/webhook", handlers.TelegramWebhook)
 
 	log.Println("Listening on port", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
