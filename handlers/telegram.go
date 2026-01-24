@@ -37,6 +37,12 @@ func TelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println("Incoming message:", update)
+	log.Printf(
+		"Incoming message: text=%q from=%d chat=%d",
+		update.Message.Text,
+		update.Message.From.ID,
+		update.Message.Chat.ID,
+	)
+
 	w.WriteHeader(http.StatusOK)
 }
