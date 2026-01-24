@@ -22,7 +22,7 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 
-	http.HandleFunc("/webhook", handlers.TelegramWebhook)
+	http.HandleFunc("/webhook", handlers.TelegramWebhook(*cfg))
 
 	log.Println("Listening on port", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
