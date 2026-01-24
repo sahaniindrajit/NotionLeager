@@ -2,11 +2,14 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"notionLeager/config"
+	"notionLeager/expense"
 	"notionLeager/telegram"
 	"strconv"
+	"time"
 )
 
 type TelegramUpdate struct {
@@ -22,6 +25,8 @@ type TelegramUpdate struct {
 		} `json:"chat"`
 	} `json:"message"`
 }
+
+var deduper = expense.NewDeduper(30 * time.Second)
 
 func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +57,10 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 		}
 
 		text := update.Message.Text
+		key := fmt.Sprintf("%d:%s", update.Message.Chat.ID, text)
+		if deduper.Seen(key) {
+			return
+		}
 		log.Println("Owner message", text)
 
 		if text == "/start" {
@@ -60,14 +69,20 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 				update.Message.Chat.ID,
 				"👋 Hi!\n\nSend expenses like:\nLunch, 450, Food\nLunch, 450, Food, Office lunch\n\nCurrency: INR",
 			)
+			return
 		}
 
-		log.Printf(
-			"Incoming message: text=%q from=%d chat=%d",
-			update.Message.Text,
-			update.Message.From.ID,
-			update.Message.Chat.ID,
-		)
+		exp, err := expense.Parse(text)
+		if err != nil {
+			telegram.SendMessage(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				"❌ Invalid format\n\nUse:\nName, Amount, Category, Description (optional)",
+			)
+			return
+		}
+
+		log.Printf("Parsed expense: %+v\n", exp)
 
 		w.WriteHeader(http.StatusOK)
 	}
