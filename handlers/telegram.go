@@ -103,7 +103,7 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 		)
 
 		if err != nil {
-			fmt.Printf("Error in saving data in notion ", err)
+			// fmt.Printf("Error in saving data in notion ", err)
 			telegram.SendMessage(
 				cfg.TelegramBotToken,
 				update.Message.Chat.ID,
@@ -111,6 +111,23 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			)
 			return
 		}
+
+		msg := fmt.Sprintf(
+			"✅ Saved\n\nName: %s\nAmount: ₹%.2f\nCategory: %s",
+			exp.Name,
+			exp.Amount,
+			category.Name,
+		)
+
+		if exp.Description != "" {
+			msg += fmt.Sprintf("\nDescription: %s", exp.Description)
+		}
+
+		telegram.SendMessage(
+			cfg.TelegramBotToken,
+			update.Message.Chat.ID,
+			msg,
+		)
 
 		log.Printf("Parsed expense: %+v\n", exp)
 		log.Printf(
