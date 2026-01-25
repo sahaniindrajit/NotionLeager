@@ -265,6 +265,113 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			return
 		}
 
+		if text == "/last edit" {
+			raw, err := notionClient.GetLastExpense()
+			if err != nil || raw == nil {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"No expense found to edit.",
+				)
+				return
+			}
+
+			e := notion.ParseLastExpense(*raw)
+
+			editSessions[update.Message.Chat.ID] = &EditState{
+				PageID: e.PageID,
+			}
+
+			telegram.SendMessage(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				"✏️ What do you want to edit?\n\nName | Amount | Category | Description",
+			)
+
+			return
+		}
+
+		if state, ok := editSessions[update.Message.Chat.ID]; ok && state.Field == "" {
+			switch text {
+			case "Name", "Amount", "Category", "Description":
+				state.Field = text
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"Enter new "+text+":",
+				)
+			default:
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"Please choose: Name | Amount | Category | Description",
+				)
+			}
+			return
+		}
+
+		if state, ok := editSessions[update.Message.Chat.ID]; ok && state.Field != "" {
+			props := map[string]interface{}{}
+
+			switch state.Field {
+			case "Name":
+				props["Name"] = map[string]interface{}{
+					"title": []map[string]interface{}{
+						{"text": map[string]string{"content": text}},
+					},
+				}
+
+			case "Amount":
+				val, err := strconv.ParseFloat(text, 64)
+				if err != nil {
+					telegram.SendMessage(
+						cfg.TelegramBotToken,
+						update.Message.Chat.ID,
+						"Invalid amount.",
+					)
+					return
+				}
+				props["Amount"] = map[string]interface{}{
+					"number": val,
+				}
+
+			case "Category":
+				cat := CategoryResolver.Resolve(text)
+				props["Category"] = map[string]interface{}{
+					"relation": []map[string]string{
+						{"id": cat.ID},
+					},
+				}
+
+			case "Description":
+				props["Description"] = map[string]interface{}{
+					"rich_text": []map[string]interface{}{
+						{"text": map[string]string{"content": text}},
+					},
+				}
+			}
+
+			err := notionClient.UpdatePage(state.PageID, props)
+			delete(editSessions, update.Message.Chat.ID)
+
+			if err != nil {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"❌ Failed to update expense",
+				)
+				return
+			}
+
+			telegram.SendMessage(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				"✅ Expense updated successfully",
+			)
+
+			return
+		}
+
 		if text == "/last" {
 			raw, err := notionClient.GetLastExpense()
 			if err != nil || raw == nil {

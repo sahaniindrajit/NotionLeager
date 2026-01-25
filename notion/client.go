@@ -3,6 +3,7 @@ package notion
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -97,6 +98,34 @@ func (c *Client) CreateExpense(
 
 	if resp.StatusCode >= 300 {
 		return err
+	}
+
+	return nil
+}
+
+func (c *Client) UpdatePage(pageID string, properties map[string]interface{}) error {
+	body, _ := json.Marshal(map[string]interface{}{
+		"properties": properties,
+	})
+
+	req, _ := http.NewRequest(
+		"PATCH",
+		"https://api.notion.com/v1/pages/"+pageID,
+		bytes.NewBuffer(body),
+	)
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Notion-Version", "2022-06-28")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("failed to update page")
 	}
 
 	return nil
