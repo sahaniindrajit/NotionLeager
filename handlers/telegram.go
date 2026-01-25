@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"notionLeager/charts"
 	"notionLeager/config"
 	"notionLeager/expense"
 	"notionLeager/notion"
@@ -218,6 +219,48 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 				cfg.TelegramBotToken,
 				update.Message.Chat.ID,
 				msg,
+			)
+
+			return
+		}
+
+		if text == "/chart" {
+			start, end := utils.ThisMonthRange(time.Now())
+
+			rows, err := notionClient.GetExpensesByDateRange(start, end)
+			if err != nil || len(rows) == 0 {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"❌ No data available for chart",
+				)
+				return
+			}
+
+			totals := expense.AggregateByCategory(rows)
+
+			chartPath := "/tmp/monthly_chart.png"
+			err = charts.GenerateCategoryPie(totals, chartPath)
+			if err != nil {
+				fmt.Printf("Error generating charts", err)
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"❌ Failed to generate chart",
+				)
+				return
+			}
+
+			caption := fmt.Sprintf(
+				"📊 %s — Category-wise expenses",
+				time.Now().Format("January 2006"),
+			)
+
+			telegram.SendPhoto(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				chartPath,
+				caption,
 			)
 
 			return
