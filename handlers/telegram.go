@@ -81,7 +81,8 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 		}
 
 		text := update.Message.Text
-		key := fmt.Sprintf("%d:%s", update.Message.Chat.ID, text)
+		// Use message ID for deduplication (prevents webhook duplicates, not repeated commands)
+		key := fmt.Sprintf("%d:%d", update.Message.Chat.ID, update.Message.MessageID)
 		if deduper.Seen(key) {
 			return
 		}
@@ -304,6 +305,12 @@ func handleLastDelete(b bot) {
 func handleEditSession(b bot, text string) bool {
 	state, ok := getEditSession(b.chatID)
 	if !ok {
+		return false
+	}
+
+	// If user sends a command, cancel edit session and let command through
+	if strings.HasPrefix(text, "/") {
+		deleteEditSession(b.chatID)
 		return false
 	}
 
