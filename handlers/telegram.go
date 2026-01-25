@@ -242,7 +242,6 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			chartPath := "/tmp/monthly_chart.png"
 			err = charts.GenerateCategoryPie(totals, chartPath)
 			if err != nil {
-				fmt.Printf("Error generating charts", err)
 				telegram.SendMessage(
 					cfg.TelegramBotToken,
 					update.Message.Chat.ID,
@@ -261,6 +260,44 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 				update.Message.Chat.ID,
 				chartPath,
 				caption,
+			)
+
+			return
+		}
+
+		if text == "/last" {
+			raw, err := notionClient.GetLastExpense()
+			if err != nil || raw == nil {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"No expenses found.",
+				)
+				return
+			}
+
+			e := notion.ParseLastExpense(*raw)
+
+			msg := fmt.Sprintf(
+				"🧾 Last Expense\n\n"+
+					"Name: %s\n"+
+					"Amount: ₹%.2f\n"+
+					"Category: %s\n"+
+					"Date: %s",
+				e.Name,
+				e.Amount,
+				e.Category,
+				e.Date,
+			)
+
+			if e.Description != "" {
+				msg += "\nDescription: " + e.Description
+			}
+
+			telegram.SendMessage(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				msg,
 			)
 
 			return
