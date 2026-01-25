@@ -9,6 +9,7 @@ import (
 	"notionLeager/expense"
 	"notionLeager/notion"
 	"notionLeager/telegram"
+	"notionLeager/utils"
 	"strconv"
 	"time"
 )
@@ -42,6 +43,13 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 		defer r.Body.Close()
 
 		var update TelegramUpdate
+
+		if notionClient == nil {
+			notionClient = notion.NewClient(
+				cfg.NotionAPIKey,
+				cfg.NotionExpenseDB,
+			)
+		}
 
 		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
 			log.Println("Invalid telegram update:", err)
@@ -77,6 +85,49 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			return
 		}
 
+		if text == "/week" {
+			start, end := utils.ThisWeekRange(time.Now())
+
+			rows, err := notionClient.GetExpensesByDateRange(start, end)
+
+			if err != nil {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"❌ Failed to fetch weekly expenses",
+				)
+				return
+			}
+			if len(rows) == 0 {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"📊 This Week\n\nNo expenses recorded.",
+				)
+				return
+			}
+
+			totals := expense.AggregateByDay(rows)
+
+			var total float64
+			msg := "📊 This Week\n\n"
+
+			for _, d := range totals {
+				total += d.Amount
+				msg += d.Date.Format("Mon") + "  •  ₹" + fmt.Sprintf("%.2f", d.Amount) + "\n"
+			}
+
+			msg = "📊 This Week — ₹" + fmt.Sprintf("%.2f", total) + "\n\n" + msg[11:]
+
+			telegram.SendMessage(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				msg,
+			)
+
+			return
+		}
+
 		exp, err := expense.Parse(text)
 		if err != nil {
 			telegram.SendMessage(
@@ -87,13 +138,6 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			return
 		}
 		category := CategoryResolver.Resolve(exp.CategoryRaw)
-
-		if notionClient == nil {
-			notionClient = notion.NewClient(
-				cfg.NotionAPIKey,
-				cfg.NotionExpenseDB,
-			)
-		}
 
 		err = notionClient.CreateExpense(
 			exp.Name,
