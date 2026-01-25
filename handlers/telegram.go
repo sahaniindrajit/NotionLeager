@@ -450,7 +450,6 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 
 			err = notionClient.DeletePage(e.PageID)
 			if err != nil {
-				fmt.Printf("Error deleting page", err)
 				telegram.SendMessage(
 					cfg.TelegramBotToken,
 					update.Message.Chat.ID,
