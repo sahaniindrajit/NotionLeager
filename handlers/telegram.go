@@ -174,6 +174,55 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			return
 		}
 
+		if text == "/summary" {
+			start, end := utils.ThisMonthRange(time.Now())
+
+			rows, err := notionClient.GetExpensesByDateRange(start, end)
+			if err != nil {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"❌ Failed to fetch summary",
+				)
+				return
+			}
+
+			if len(rows) == 0 {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"📈 Summary\n\nNo expenses recorded this month.",
+				)
+				return
+			}
+
+			s := expense.BuildSummary(rows)
+			monthLabel := time.Now().Format("January 2006")
+
+			msg := fmt.Sprintf(
+				"📈 Summary — %s\n\n"+
+					"• Total spent: ₹%.2f\n"+
+					"• Daily average: ₹%.2f\n"+
+					"• Highest day: ₹%.2f\n"+
+					"• Lowest day: ₹%.2f\n"+
+					"• Top category: %s",
+				monthLabel,
+				s.Total,
+				s.DailyAvg,
+				s.HighestDay,
+				s.LowestDay,
+				s.TopCategory,
+			)
+
+			telegram.SendMessage(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				msg,
+			)
+
+			return
+		}
+
 		exp, err := expense.Parse(text)
 		if err != nil {
 			telegram.SendMessage(

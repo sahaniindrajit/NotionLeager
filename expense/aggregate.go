@@ -16,6 +16,14 @@ type CategoryTotal struct {
 	Amount   float64
 }
 
+type Summary struct {
+	Total       float64
+	DailyAvg    float64
+	HighestDay  float64
+	LowestDay   float64
+	TopCategory string
+}
+
 func AggregateByDay(rows []notion.ExpenseRow) []DayTotal {
 	m := make(map[string]float64)
 
@@ -74,4 +82,49 @@ func AggregateByCategory(rows []notion.ExpenseRow) []CategoryTotal {
 	}
 
 	return out
+}
+
+func BuildSummary(
+	rows []notion.ExpenseRow,
+) Summary {
+
+	dayTotals := AggregateByDay(rows)
+	catTotals := AggregateByCategory(rows)
+
+	var total float64
+	for _, r := range rows {
+		total += r.Amount
+	}
+
+	var highest, lowest float64
+	if len(dayTotals) > 0 {
+		highest = dayTotals[0].Amount
+		lowest = dayTotals[0].Amount
+		for _, d := range dayTotals {
+			if d.Amount > highest {
+				highest = d.Amount
+			}
+			if d.Amount < lowest {
+				lowest = d.Amount
+			}
+		}
+	}
+
+	var dailyAvg float64
+	if len(dayTotals) > 0 {
+		dailyAvg = total / float64(len(dayTotals))
+	}
+
+	topCategory := ""
+	if len(catTotals) > 0 {
+		topCategory = catTotals[0].Category
+	}
+
+	return Summary{
+		Total:       total,
+		DailyAvg:    dailyAvg,
+		HighestDay:  highest,
+		LowestDay:   lowest,
+		TopCategory: topCategory,
+	}
 }
