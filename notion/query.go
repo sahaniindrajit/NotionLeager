@@ -9,9 +9,10 @@ import (
 )
 
 type ExpenseRow struct {
-	Date     time.Time
-	Amount   float64
-	Category string
+	Date       time.Time
+	Amount     float64
+	CategoryID string
+	Category   string
 }
 
 type queryRequest struct {
@@ -120,17 +121,18 @@ func parseExpenseRow(raw map[string]interface{}) (ExpenseRow, error) {
 	// Amount
 	amount := props["Amount"].(map[string]interface{})["number"].(float64)
 
-	// Category name (resolved via relation rollup)
-	category := "Miscellaneous"
+	// Category relation → ID
+	categoryID := ""
 	if rel, ok := props["Category"].(map[string]interface{})["relation"].([]interface{}); ok && len(rel) > 0 {
-		if name, ok := raw["properties"].(map[string]interface{})["Category"].(map[string]interface{})["relation"]; ok {
-			_ = name // placeholder (we'll resolve names properly in Phase 2)
-		}
+		categoryID = rel[0].(map[string]interface{})["id"].(string)
 	}
 
+	categoryName := ResolveCategoryName(categoryID)
+
 	return ExpenseRow{
-		Date:     date,
-		Amount:   amount,
-		Category: category,
+		Date:       date,
+		Amount:     amount,
+		CategoryID: categoryID,
+		Category:   categoryName,
 	}, nil
 }

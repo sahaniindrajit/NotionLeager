@@ -35,6 +35,7 @@ var notionClient *notion.Client
 func init() {
 	cats, fallback := notion.SeedCategories()
 	CategoryResolver = notion.NewCategoryResolver(cats, fallback)
+	notion.InitCategoryMap()
 }
 
 func TelegramWebhook(cfg config.Config) http.HandlerFunc {
@@ -118,6 +119,51 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			}
 
 			msg = "📊 This Week — ₹" + fmt.Sprintf("%.2f", total) + "\n\n" + msg[11:]
+
+			telegram.SendMessage(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				msg,
+			)
+
+			return
+		}
+
+		if text == "/month" {
+			start, end := utils.ThisMonthRange(time.Now())
+
+			rows, err := notionClient.GetExpensesByDateRange(start, end)
+			if err != nil {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"❌ Failed to fetch monthly expenses",
+				)
+				return
+			}
+
+			if len(rows) == 0 {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"📊 This Month\n\nNo expenses recorded.",
+				)
+				return
+			}
+
+			totals := expense.AggregateByCategory(rows)
+
+			var total float64
+			for _, c := range totals {
+				total += c.Amount
+			}
+
+			monthLabel := time.Now().Format("January 2006")
+			msg := fmt.Sprintf("📊 %s — ₹%.2f\n\n", monthLabel, total)
+
+			for _, c := range totals {
+				msg += fmt.Sprintf("%-18s ₹%.2f\n", c.Category, c.Amount)
+			}
 
 			telegram.SendMessage(
 				cfg.TelegramBotToken,
