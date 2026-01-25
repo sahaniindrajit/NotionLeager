@@ -220,3 +220,30 @@ func ParseLastExpense(raw map[string]interface{}) LastExpense {
 		Date:        date,
 	}
 }
+
+func (c *Client) DeletePage(pageID string) error {
+
+	body := bytes.NewBufferString(`{"archived": true}`)
+
+	req, _ := http.NewRequest(
+		"PATCH",
+		"https://api.notion.com/v1/pages/"+pageID,
+		body,
+	)
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Notion-Version", "2022-06-28")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("failed to delete page, status=%d", resp.StatusCode)
+	}
+
+	return nil
+}

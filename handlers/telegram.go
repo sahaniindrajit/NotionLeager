@@ -303,6 +303,39 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			return
 		}
 
+		if text == "/last delete" {
+			raw, err := notionClient.GetLastExpense()
+			if err != nil || raw == nil {
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"No expense found to delete.",
+				)
+				return
+			}
+
+			e := notion.ParseLastExpense(*raw)
+
+			err = notionClient.DeletePage(e.PageID)
+			if err != nil {
+				fmt.Printf("Error deleting page", err)
+				telegram.SendMessage(
+					cfg.TelegramBotToken,
+					update.Message.Chat.ID,
+					"❌ Failed to delete expense",
+				)
+				return
+			}
+
+			telegram.SendMessage(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				"🗑 Deleted last expense:\n"+e.Name+" — ₹"+fmt.Sprintf("%.2f", e.Amount),
+			)
+
+			return
+		}
+
 		exp, err := expense.Parse(text)
 		if err != nil {
 			telegram.SendMessage(
