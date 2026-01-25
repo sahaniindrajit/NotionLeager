@@ -1,6 +1,7 @@
 package expense
 
 import (
+	"sort"
 	"time"
 
 	"notionLeager/notion"
@@ -32,23 +33,16 @@ func AggregateByDay(rows []notion.ExpenseRow) []DayTotal {
 		m[key] += r.Amount
 	}
 
-	var out []DayTotal
+	out := make([]DayTotal, 0, len(m))
 	for k, v := range m {
 		d, _ := time.Parse("2006-01-02", k)
-		out = append(out, DayTotal{
-			Date:   d,
-			Amount: v,
-		})
+		out = append(out, DayTotal{Date: d, Amount: v})
 	}
 
-	// sort by date ascending
-	for i := 0; i < len(out)-1; i++ {
-		for j := i + 1; j < len(out); j++ {
-			if out[i].Date.After(out[j].Date) {
-				out[i], out[j] = out[j], out[i]
-			}
-		}
-	}
+	// O(n log n) sort instead of O(n^2) bubble sort
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Date.Before(out[j].Date)
+	})
 
 	return out
 }
@@ -64,61 +58,67 @@ func AggregateByCategory(rows []notion.ExpenseRow) []CategoryTotal {
 		m[category] += r.Amount
 	}
 
-	var out []CategoryTotal
+	out := make([]CategoryTotal, 0, len(m))
 	for k, v := range m {
-		out = append(out, CategoryTotal{
-			Category: k,
-			Amount:   v,
-		})
+		out = append(out, CategoryTotal{Category: k, Amount: v})
 	}
 
-	// sort by amount desc
-	for i := 0; i < len(out)-1; i++ {
-		for j := i + 1; j < len(out); j++ {
-			if out[i].Amount < out[j].Amount {
-				out[i], out[j] = out[j], out[i]
-			}
-		}
-	}
+	// O(n log n) sort instead of O(n^2) bubble sort
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Amount > out[j].Amount
+	})
 
 	return out
 }
 
-func BuildSummary(
-	rows []notion.ExpenseRow,
-) Summary {
-
-	dayTotals := AggregateByDay(rows)
-	catTotals := AggregateByCategory(rows)
-
-	var total float64
-	for _, r := range rows {
-		total += r.Amount
+func BuildSummary(rows []notion.ExpenseRow) Summary {
+	if len(rows) == 0 {
+		return Summary{}
 	}
 
+	// Single pass for total and day aggregation
+	dayMap := make(map[string]float64)
+	catMap := make(map[string]float64)
+	var total float64
+
+	for _, r := range rows {
+		total += r.Amount
+		dayMap[r.Date.Format("2006-01-02")] += r.Amount
+		cat := r.Category
+		if cat == "" {
+			cat = "Miscellaneous"
+		}
+		catMap[cat] += r.Amount
+	}
+
+	// Find highest/lowest day
 	var highest, lowest float64
-	if len(dayTotals) > 0 {
-		highest = dayTotals[0].Amount
-		lowest = dayTotals[0].Amount
-		for _, d := range dayTotals {
-			if d.Amount > highest {
-				highest = d.Amount
-			}
-			if d.Amount < lowest {
-				lowest = d.Amount
-			}
+	first := true
+	for _, amt := range dayMap {
+		if first {
+			highest, lowest = amt, amt
+			first = false
+			continue
+		}
+		if amt > highest {
+			highest = amt
+		}
+		if amt < lowest {
+			lowest = amt
 		}
 	}
 
-	var dailyAvg float64
-	if len(dayTotals) > 0 {
-		dailyAvg = total / float64(len(dayTotals))
+	// Find top category
+	topCategory := ""
+	var topAmount float64
+	for cat, amt := range catMap {
+		if amt > topAmount {
+			topAmount = amt
+			topCategory = cat
+		}
 	}
 
-	topCategory := ""
-	if len(catTotals) > 0 {
-		topCategory = catTotals[0].Category
-	}
+	dailyAvg := total / float64(len(dayMap))
 
 	return Summary{
 		Total:       total,

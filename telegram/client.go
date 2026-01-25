@@ -6,9 +6,25 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
+	"time"
 )
+
+// Shared HTTP client with connection pooling and timeouts
+var httpClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+	},
+}
 
 type SendMessageRequest struct {
 	ChatID int64  `json:"chat_id"`
@@ -16,19 +32,24 @@ type SendMessageRequest struct {
 }
 
 func SendMessage(token string, chatID int64, text string) error {
+	body, err := json.Marshal(SendMessageRequest{ChatID: chatID, Text: text})
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
 
-	body, _ := json.Marshal(SendMessageRequest{
-		ChatID: chatID,
-		Text:   text,
-	})
+	req, err := http.NewRequest("POST", "https://api.telegram.org/bot"+token+"/sendMessage", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
 
-	_, err := http.Post(
-		"https://api.telegram.org/bot"+token+"/sendMessage",
-		"application/json",
-		bytes.NewBuffer(body),
-	)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 
-	return err
+	return nil
 }
 
 func SendPhoto(token string, chatID int64, imagePath string, caption string) error {
@@ -37,9 +58,13 @@ func SendPhoto(token string, chatID int64, imagePath string, caption string) err
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	_ = writer.WriteField("chat_id", fmt.Sprint(chatID))
+	if err := writer.WriteField("chat_id", fmt.Sprint(chatID)); err != nil {
+		return fmt.Errorf("failed to write chat_id field: %w", err)
+	}
 	if caption != "" {
-		_ = writer.WriteField("caption", caption)
+		if err := writer.WriteField("caption", caption); err != nil {
+			return fmt.Errorf("failed to write caption field: %w", err)
+		}
 	}
 
 	file, err := os.Open(imagePath)
@@ -53,13 +78,18 @@ func SendPhoto(token string, chatID int64, imagePath string, caption string) err
 		return err
 	}
 
-	_, _ = io.Copy(part, file)
+	if _, err := io.Copy(part, file); err != nil {
+		return fmt.Errorf("failed to copy file: %w", err)
+	}
 	writer.Close()
 
-	req, _ := http.NewRequest("POST", url, body)
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}

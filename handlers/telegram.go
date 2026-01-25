@@ -12,6 +12,8 @@ import (
 	"notionLeager/telegram"
 	"notionLeager/utils"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,6 +35,7 @@ var (
 	deduper          = expense.NewDeduper(30 * time.Second)
 	CategoryResolver *notion.CategoryResolver
 	notionClient     *notion.Client
+	clientOnce       sync.Once
 )
 
 func init() {
@@ -85,10 +88,10 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 
 		log.Println("Owner message", text)
 
-		// Initialize clients
-		if notionClient == nil {
+		// Thread-safe client initialization (only once)
+		clientOnce.Do(func() {
 			notionClient = notion.NewClient(cfg.NotionAPIKey, cfg.NotionExpenseDB)
-		}
+		})
 
 		b := bot{token: cfg.TelegramBotToken, chatID: update.Message.Chat.ID}
 
@@ -167,14 +170,14 @@ func handleWeek(b bot) {
 
 	totals := expense.AggregateByDay(rows)
 	var total float64
-	var lines string
+	var sb strings.Builder
 
 	for _, d := range totals {
 		total += d.Amount
-		lines += fmt.Sprintf("%s  •  ₹%.2f\n", d.Date.Format("Mon"), d.Amount)
+		fmt.Fprintf(&sb, "%s  •  ₹%.2f\n", d.Date.Format("Mon"), d.Amount)
 	}
 
-	b.send(fmt.Sprintf("📊 This Week — ₹%.2f\n\n%s", total, lines))
+	b.send(fmt.Sprintf("📊 This Week — ₹%.2f\n\n%s", total, sb.String()))
 }
 
 func handleMonth(b bot) {
@@ -196,12 +199,13 @@ func handleMonth(b bot) {
 		total += c.Amount
 	}
 
-	msg := fmt.Sprintf("📊 %s — ₹%.2f\n\n", time.Now().Format("January 2006"), total)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "📊 %s — ₹%.2f\n\n", time.Now().Format("January 2006"), total)
 	for _, c := range totals {
-		msg += fmt.Sprintf("%-18s ₹%.2f\n", c.Category, c.Amount)
+		fmt.Fprintf(&sb, "%-18s ₹%.2f\n", c.Category, c.Amount)
 	}
 
-	b.send(msg)
+	b.send(sb.String())
 }
 
 func handleSummary(b bot) {
@@ -256,18 +260,16 @@ func handleLast(b bot) {
 	}
 
 	e := notion.ParseLastExpense(*raw)
-	msg := fmt.Sprintf(`🧾 Last Expense
-
-Name: %s
-Amount: ₹%.2f
-Category: %s
-Date: %s`, e.Name, e.Amount, e.Category, e.Date)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "🧾 Last Expense\n\nName: %s\nAmount: ₹%.2f\nCategory: %s\nDate: %s",
+		e.Name, e.Amount, e.Category, e.Date)
 
 	if e.Description != "" {
-		msg += "\nDescription: " + e.Description
+		sb.WriteString("\nDescription: ")
+		sb.WriteString(e.Description)
 	}
 
-	b.send(msg)
+	b.send(sb.String())
 }
 
 func handleLastEdit(b bot) {
@@ -278,7 +280,7 @@ func handleLastEdit(b bot) {
 	}
 
 	e := notion.ParseLastExpense(*raw)
-	editSessions[b.chatID] = &EditState{PageID: e.PageID}
+	setEditSession(b.chatID, &EditState{PageID: e.PageID})
 
 	b.send("✏️ What do you want to edit?\n\nName | Amount | Category | Description")
 }
@@ -300,7 +302,7 @@ func handleLastDelete(b bot) {
 }
 
 func handleEditSession(b bot, text string) bool {
-	state, ok := editSessions[b.chatID]
+	state, ok := getEditSession(b.chatID)
 	if !ok {
 		return false
 	}
@@ -310,6 +312,7 @@ func handleEditSession(b bot, text string) bool {
 		switch text {
 		case "Name", "Amount", "Category", "Description":
 			state.Field = text
+			setEditSession(b.chatID, state) // Update with field set
 			b.send("Enter new " + text + ":")
 		default:
 			b.send("Please choose: Name | Amount | Category | Description")
@@ -323,7 +326,7 @@ func handleEditSession(b bot, text string) bool {
 		return true
 	}
 
-	delete(editSessions, b.chatID)
+	deleteEditSession(b.chatID)
 
 	if err := notionClient.UpdatePage(state.PageID, props); err != nil {
 		b.send("❌ Failed to update expense")
@@ -381,12 +384,14 @@ func handleExpense(b bot, text string) {
 		return
 	}
 
-	msg := fmt.Sprintf("✅ Saved\n\nName: %s\nAmount: ₹%.2f\nCategory: %s", exp.Name, exp.Amount, category.Name)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "✅ Saved\n\nName: %s\nAmount: ₹%.2f\nCategory: %s", exp.Name, exp.Amount, category.Name)
 	if exp.Description != "" {
-		msg += "\nDescription: " + exp.Description
+		sb.WriteString("\nDescription: ")
+		sb.WriteString(exp.Description)
 	}
 
-	b.send(msg)
+	b.send(sb.String())
 
 	log.Printf("Parsed expense: %+v\n", exp)
 	log.Printf("Resolved category: input=%q → %s (%s)\n", exp.CategoryRaw, category.Name, category.ID)
