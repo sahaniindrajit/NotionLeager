@@ -87,6 +87,31 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			return
 		}
 
+		if text == "/help" {
+			telegram.SendMessage(
+				cfg.TelegramBotToken,
+				update.Message.Chat.ID,
+				"🤖 NotionLedger Bot — Help\n\n"+
+					"Add expense:\n"+
+					"• Lunch, 450, Food\n"+
+					"• Lunch, 450, Food, Office lunch\n\n"+
+					"Commands:\n"+
+					"• /week     → This week’s expenses (day-wise)\n"+
+					"• /month    → This month’s expenses (category-wise)\n"+
+					"• /summary  → Monthly spending summary\n"+
+					"• /chart    → Monthly category pie chart\n"+
+					"• /last     → View last expense\n"+
+					"• /last edit → Edit last expense\n"+
+					"• /last delete → Delete last expense\n"+
+					"• /help     → Show this help\n\n"+
+					"Notes:\n"+
+					"• Amount is in INR (₹)\n"+
+					"• Date defaults to today\n"+
+					"• Only your messages are processed",
+			)
+			return
+		}
+
 		if text == "/week" {
 			start, end := utils.ThisWeekRange(time.Now())
 
@@ -265,7 +290,7 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			return
 		}
 
-		if text == "/last edit" {
+		if text == "/lastedit" {
 			raw, err := notionClient.GetLastExpense()
 			if err != nil || raw == nil {
 				telegram.SendMessage(
@@ -410,7 +435,7 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			return
 		}
 
-		if text == "/last delete" {
+		if text == "/lastdelete" {
 			raw, err := notionClient.GetLastExpense()
 			if err != nil || raw == nil {
 				telegram.SendMessage(
