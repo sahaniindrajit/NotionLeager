@@ -146,10 +146,10 @@ Commands:
 • /summary  → Monthly spending summary
 • /chart    → Monthly category pie chart
 • /last     → View last expense
-• /last edit → Edit last expense
-• /last delete → Delete last expense
+• /lastedit → Edit last expense
+• /lastdelete → Delete last expense
 • /help     → Show this help
-
+ 
 Notes:
 • Amount is in INR (₹)
 • Date defaults to today
