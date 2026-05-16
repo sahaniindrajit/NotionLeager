@@ -87,7 +87,7 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			return
 		}
 
-		log.Println("Owner message", text)
+		utils.Debugln("Owner message", text)
 
 		// Thread-safe client initialization (only once)
 		clientOnce.Do(func() {
@@ -400,6 +400,6 @@ func handleExpense(b bot, text string) {
 
 	b.send(sb.String())
 
-	log.Printf("Parsed expense: %+v\n", exp)
-	log.Printf("Resolved category: input=%q → %s (%s)\n", exp.CategoryRaw, category.Name, category.ID)
+	utils.Debugf("Parsed expense: %+v\n", exp)
+	utils.Debugf("Resolved category: input=%q → %s (%s)\n", exp.CategoryRaw, category.Name, category.ID)
 }

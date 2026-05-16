@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"notionLeager/config"
 	"notionLeager/handlers"
+	"notionLeager/utils"
 
 	"github.com/joho/godotenv"
 )
@@ -16,6 +17,7 @@ func main() {
 	}
 
 	cfg := config.Load()
+	utils.InitLogger(cfg.Env)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
