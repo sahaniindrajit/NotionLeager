@@ -32,9 +32,9 @@ func TestMonthlySubscriptions(t *testing.T) {
 		amount float64
 		day    int
 	}{
-		"YouTube Premium":     {50, 1},
-		"Netflix":             {199, 30},
-		"Google One (130 GB)": {130, 30},
+		"YouTube Premium":    {50, 1},
+		"Netflix":            {199, 30},
+		"Google One (30 GB)": {59, 30},
 	}
 	if len(MonthlySubscriptions) != len(want) {
 		t.Fatalf("got %d subscriptions, want %d", len(MonthlySubscriptions), len(want))

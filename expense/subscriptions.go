@@ -14,7 +14,7 @@ type Subscription struct {
 var MonthlySubscriptions = []Subscription{
 	{Name: "YouTube Premium", Amount: 50, Category: "Subscription", Day: 1},
 	{Name: "Netflix", Amount: 199, Category: "Subscription", Day: 30},
-	{Name: "Google One (130 GB)", Amount: 130, Category: "Subscription", Day: 30},
+	{Name: "Google One (30 GB)", Amount: 59, Category: "Subscription", Day: 30},
 }
 
 // DateIn returns the charge date for the given month. If the month is shorter

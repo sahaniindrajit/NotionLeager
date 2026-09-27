@@ -219,12 +219,12 @@ func TestAddSubsCurrentMonth(t *testing.T) {
 	day30 := expenseDay(now, 30)
 
 	reply := h.send("/addsubs")
-	mustContain(t, reply, "✅ Added (₹379.00)", "YouTube Premium — ₹50.00", "Netflix — ₹199.00", "Google One (130 GB) — ₹130.00")
+	mustContain(t, reply, "✅ Added (₹308.00)", "YouTube Premium — ₹50.00", "Netflix — ₹199.00", "Google One (30 GB) — ₹59.00")
 
 	want := map[string]fakePage{
-		"YouTube Premium":     {"YouTube Premium", 50, subsCatID, ym + "-01"},
-		"Netflix":             {"Netflix", 199, subsCatID, day30},
-		"Google One (130 GB)": {"Google One (130 GB)", 130, subsCatID, day30},
+		"YouTube Premium":    {"YouTube Premium", 50, subsCatID, ym + "-01"},
+		"Netflix":            {"Netflix", 199, subsCatID, day30},
+		"Google One (30 GB)": {"Google One (30 GB)", 59, subsCatID, day30},
 	}
 	pages := h.notion.snapshot()
 	if len(pages) != 3 {
@@ -251,13 +251,13 @@ func TestAddSubsSpecificMonth(t *testing.T) {
 	h := newHarness(t)
 
 	reply := h.send("/addsubs 2027-02")
-	mustContain(t, reply, "February 2027", "✅ Added (₹379.00)")
+	mustContain(t, reply, "February 2027", "✅ Added (₹308.00)")
 
 	dates := map[string]string{}
 	for _, p := range h.notion.snapshot() {
 		dates[p.Name] = p.Date
 	}
-	if dates["YouTube Premium"] != "2027-02-01" || dates["Netflix"] != "2027-02-28" || dates["Google One (130 GB)"] != "2027-02-28" {
+	if dates["YouTube Premium"] != "2027-02-01" || dates["Netflix"] != "2027-02-28" || dates["Google One (30 GB)"] != "2027-02-28" {
 		t.Errorf("unexpected dates for Feb 2027: %v", dates)
 	}
 
@@ -270,10 +270,10 @@ func TestAddSubsSpecificMonth(t *testing.T) {
 func TestSubsList(t *testing.T) {
 	h := newHarness(t)
 	mustContain(t, h.send("/subs"),
-		"Monthly Subscriptions — ₹379.00",
+		"Monthly Subscriptions — ₹308.00",
 		"YouTube Premium — ₹50.00 on day 1",
 		"Netflix — ₹199.00 on day 30",
-		"Google One (130 GB) — ₹130.00 on day 30")
+		"Google One (30 GB) — ₹59.00 on day 30")
 }
 
 func TestCategories(t *testing.T) {
