@@ -1,11 +1,15 @@
 package notion
 
+// CashCategoryID is the "Cash" category, used for ATM withdrawals.
+const CashCategoryID = "3e878c44-adcc-81ce-a7d8-fc83b6c056a1"
+
 func SeedCategories() ([]Category, Category) {
 	categories := []Category{
 		{ID: "0e694186-2d9a-491c-ad11-e9a2684abe10", Name: "Business"},
 		{ID: "17ea2834-b809-4bf7-8b53-7b5c766db92b", Name: "Shopping"},
 		{ID: "183267cf-08f9-4bdc-aa1d-54bf2e027814", Name: "Entertainment"},
 		{ID: "28478c44-adcc-80c7-9907-d5c44206e742", Name: "Miscellaneous"},
+		{ID: CashCategoryID, Name: "Cash"},
 		{ID: "2f278c44-adcc-801f-9427-f3dd1b55e291", Name: "Donation"},
 		{ID: "2f278c44-adcc-80eb-9547-e948a27acf6b", Name: "Leager"},
 		{ID: "47a3c7b1-ec42-414d-b9df-f0b8ffe11ef6", Name: "Travel"},

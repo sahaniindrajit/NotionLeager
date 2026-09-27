@@ -23,16 +23,28 @@ var httpClient = &http.Client{
 	},
 }
 
+// APIBaseURL is the Notion API root. It is a variable so tests can point it at a fake server.
+var APIBaseURL = "https://api.notion.com/v1"
+
 type Client struct {
-	apiKey string
-	dbID   string
+	apiKey   string
+	dbID     string
+	cashDBID string
 }
 
-func NewClient(apiKey, dbID string) *Client {
+// NewClient creates a Notion client. cashDBID is the Cash Expenses database;
+// it may be empty, in which case cash tracking is disabled.
+func NewClient(apiKey, dbID, cashDBID string) *Client {
 	return &Client{
-		apiKey: apiKey,
-		dbID:   dbID,
+		apiKey:   apiKey,
+		dbID:     dbID,
+		cashDBID: cashDBID,
 	}
+}
+
+// HasCashDB reports whether a Cash Expenses database is configured.
+func (c *Client) HasCashDB() bool {
+	return c.cashDBID != ""
 }
 
 type createPageRequest struct {
@@ -43,9 +55,24 @@ type createPageRequest struct {
 }
 
 func (c *Client) CreateExpense(name string, amount float64, categoryID string, description string) error {
-	reqBody := createPageRequest{}
-	reqBody.Parent.DatabaseID = c.dbID
+	return c.CreateExpenseOn(time.Now(), name, amount, categoryID, description)
+}
 
+// CreateExpenseOn creates an expense dated on the given day.
+func (c *Client) CreateExpenseOn(date time.Time, name string, amount float64, categoryID string, description string) error {
+	return c.createPage(c.dbID, expenseProps(date, name, amount, categoryID, description))
+}
+
+// CreateCashExpense adds an item paid in cash, linked to the withdrawal page it came from.
+func (c *Client) CreateCashExpense(date time.Time, name string, amount float64, categoryID, description, withdrawalID string) error {
+	props := expenseProps(date, name, amount, categoryID, description)
+	props["Withdrawal"] = map[string]interface{}{
+		"relation": []map[string]string{{"id": withdrawalID}},
+	}
+	return c.createPage(c.cashDBID, props)
+}
+
+func expenseProps(date time.Time, name string, amount float64, categoryID string, description string) map[string]interface{} {
 	props := map[string]interface{}{
 		"Name": map[string]interface{}{
 			"title": []map[string]interface{}{
@@ -59,7 +86,7 @@ func (c *Client) CreateExpense(name string, amount float64, categoryID string, d
 			"relation": []map[string]string{{"id": categoryID}},
 		},
 		"Date": map[string]interface{}{
-			"date": map[string]string{"start": time.Now().Format("2006-01-02")},
+			"date": map[string]string{"start": date.Format("2006-01-02")},
 		},
 	}
 
@@ -71,6 +98,12 @@ func (c *Client) CreateExpense(name string, amount float64, categoryID string, d
 		}
 	}
 
+	return props
+}
+
+func (c *Client) createPage(dbID string, props map[string]interface{}) error {
+	reqBody := createPageRequest{}
+	reqBody.Parent.DatabaseID = dbID
 	reqBody.Properties = props
 
 	body, err := json.Marshal(reqBody)
@@ -78,7 +111,7 @@ func (c *Client) CreateExpense(name string, amount float64, categoryID string, d
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.notion.com/v1/pages", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", APIBaseURL+"/pages", bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -106,7 +139,7 @@ func (c *Client) UpdatePage(pageID string, properties map[string]interface{}) er
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("PATCH", "https://api.notion.com/v1/pages/"+pageID, bytes.NewBuffer(body))
+	req, err := http.NewRequest("PATCH", APIBaseURL+"/pages/"+pageID, bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

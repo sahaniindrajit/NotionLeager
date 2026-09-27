@@ -1,6 +1,7 @@
 package notion
 
 import (
+	"sort"
 	"strings"
 )
 
@@ -179,6 +180,12 @@ func buildAliases() map[string]string {
 		"work":     "Business",
 		"client":   "Business",
 
+		// Cash (ATM withdrawals)
+		"atm":        "Cash",
+		"withdraw":   "Cash",
+		"withdrawal": "Cash",
+		"withdrawn":  "Cash",
+
 		// Donation
 		"donation": "Donation",
 		"donate":   "Donation",
@@ -328,4 +335,24 @@ func min(nums ...int) int {
 		}
 	}
 	return m
+}
+
+// Categories returns all known categories, sorted by name.
+func (r *CategoryResolver) Categories() []Category {
+	out := make([]Category, len(r.categories))
+	copy(out, r.categories)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// Keywords returns the sorted alias keywords that map to the given category name.
+func (r *CategoryResolver) Keywords(categoryName string) []string {
+	var out []string
+	for alias, name := range r.aliases {
+		if name == categoryName {
+			out = append(out, alias)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

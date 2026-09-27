@@ -107,13 +107,58 @@ Examples:
 |---------|-------------|
 | `/start` | Welcome message |
 | `/help` | Show all commands |
+| `/today` | Today's expenses |
 | `/week` | This week's expenses by day |
 | `/month` | This month's expenses by category |
 | `/summary` | Monthly statistics |
 | `/chart` | Pie chart of expenses |
 | `/last` | Show last expense |
 | `/lastedit` | Edit last expense |
-| `/last delete` | Delete last expense |
+| `/lastdelete` | Delete last expense |
+| `/categories` | List all categories and their keywords |
+| `/subs` | List configured monthly subscriptions |
+| `/addsubs` | Add all monthly subscriptions for the current month |
+| `/addsubs YYYY-MM` | Add all monthly subscriptions for a given month |
+| `/withdraw 500 [note]` | Record an ATM withdrawal (Cash category) |
+| `/cash Name, Amount, Category, [Description]` | Record something paid in cash |
+| `/cashleft` | Cash left from recent withdrawals |
+| `/cashmonth` | This month's cash spends by category |
+
+### Monthly Subscriptions
+
+Recurring expenses are defined in `expense/subscriptions.go` (`MonthlySubscriptions`).
+`/addsubs` adds each one dated on its charge day for the month; if the month is shorter
+than the charge day (e.g. the 30th in February) the last day of the month is used.
+Running it twice for the same month skips subscriptions that are already recorded.
+
+### Cash Tracking
+
+The main table mirrors your bank account, so an ATM withdrawal is one row there
+(category **Cash**). What you buy with that cash goes into a separate **Cash Expenses**
+database, each item linked to the withdrawal it came from:
+
+1. `/withdraw 500` → adds "Cash withdrawal ₹500" to the main table.
+2. `/cash Tea, 20, Food` → adds Tea to Cash Expenses, linked to your latest withdrawal,
+   and replies with how much of it is left.
+3. `/cashleft` / `/cashmonth` → balances and category breakdown.
+
+Opening a withdrawal in Notion shows its linked cash items, with **Cash Spent** (rollup)
+and **Cash Left** (formula) columns. `/week`, `/month`, `/summary` and `/chart` keep
+matching your bank; cash items are reported separately so nothing is counted twice.
+
+Cash Expenses database properties:
+
+| Property | Type |
+|----------|------|
+| Name | Title |
+| Amount | Number |
+| Category | Relation (to the Categories database) |
+| Date | Date |
+| Withdrawal | Relation (to the Expenses database, two-way) |
+| Summary | Text |
+
+Set `NOTION_CASH_DB_ID` to its ID and connect your integration to it. Without it,
+`/cash`, `/cashleft` and `/cashmonth` reply that cash tracking isn't set up.
 
 ### Categories
 
@@ -123,6 +168,7 @@ The bot matches your input to these categories:
 - Shopping
 - Entertainment
 - Miscellaneous (fallback)
+- Cash (ATM withdrawals)
 - Donation
 - Travel
 - Food & Drink
