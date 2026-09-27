@@ -107,13 +107,25 @@ Examples:
 |---------|-------------|
 | `/start` | Welcome message |
 | `/help` | Show all commands |
+| `/today` | Today's expenses |
 | `/week` | This week's expenses by day |
 | `/month` | This month's expenses by category |
 | `/summary` | Monthly statistics |
 | `/chart` | Pie chart of expenses |
 | `/last` | Show last expense |
 | `/lastedit` | Edit last expense |
-| `/last delete` | Delete last expense |
+| `/lastdelete` | Delete last expense |
+| `/categories` | List all categories and their keywords |
+| `/subs` | List configured monthly subscriptions |
+| `/addsubs` | Add all monthly subscriptions for the current month |
+| `/addsubs YYYY-MM` | Add all monthly subscriptions for a given month |
+
+### Monthly Subscriptions
+
+Recurring expenses are defined in `expense/subscriptions.go` (`MonthlySubscriptions`).
+`/addsubs` adds each one dated on its charge day for the month; if the month is shorter
+than the charge day (e.g. the 30th in February) the last day of the month is used.
+Running it twice for the same month skips subscriptions that are already recorded.
 
 ### Categories
 

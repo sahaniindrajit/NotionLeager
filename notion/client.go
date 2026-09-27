@@ -23,6 +23,9 @@ var httpClient = &http.Client{
 	},
 }
 
+// APIBaseURL is the Notion API root. It is a variable so tests can point it at a fake server.
+var APIBaseURL = "https://api.notion.com/v1"
+
 type Client struct {
 	apiKey string
 	dbID   string
@@ -43,6 +46,11 @@ type createPageRequest struct {
 }
 
 func (c *Client) CreateExpense(name string, amount float64, categoryID string, description string) error {
+	return c.CreateExpenseOn(time.Now(), name, amount, categoryID, description)
+}
+
+// CreateExpenseOn creates an expense dated on the given day.
+func (c *Client) CreateExpenseOn(date time.Time, name string, amount float64, categoryID string, description string) error {
 	reqBody := createPageRequest{}
 	reqBody.Parent.DatabaseID = c.dbID
 
@@ -59,7 +67,7 @@ func (c *Client) CreateExpense(name string, amount float64, categoryID string, d
 			"relation": []map[string]string{{"id": categoryID}},
 		},
 		"Date": map[string]interface{}{
-			"date": map[string]string{"start": time.Now().Format("2006-01-02")},
+			"date": map[string]string{"start": date.Format("2006-01-02")},
 		},
 	}
 
@@ -78,7 +86,7 @@ func (c *Client) CreateExpense(name string, amount float64, categoryID string, d
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.notion.com/v1/pages", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", APIBaseURL+"/pages", bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -106,7 +114,7 @@ func (c *Client) UpdatePage(pageID string, properties map[string]interface{}) er
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("PATCH", "https://api.notion.com/v1/pages/"+pageID, bytes.NewBuffer(body))
+	req, err := http.NewRequest("PATCH", APIBaseURL+"/pages/"+pageID, bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

@@ -9,6 +9,7 @@ import (
 )
 
 type ExpenseRow struct {
+	Name       string
 	Date       time.Time
 	Amount     float64
 	CategoryID string
@@ -64,7 +65,7 @@ func (c *Client) GetExpensesByDateRange(start time.Time, end time.Time) ([]Expen
 			return nil, fmt.Errorf("failed to marshal request: %w", err)
 		}
 
-		req, err := http.NewRequest("POST", fmt.Sprintf("https://api.notion.com/v1/databases/%s/query", c.dbID), bytes.NewBuffer(body))
+		req, err := http.NewRequest("POST", fmt.Sprintf("%s/databases/%s/query", APIBaseURL, c.dbID), bytes.NewBuffer(body))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
@@ -134,6 +135,7 @@ func parseExpenseRow(raw map[string]interface{}) (ExpenseRow, error) {
 	}
 
 	return ExpenseRow{
+		Name:       getTitle(props, "Name"),
 		Date:       date,
 		Amount:     amount,
 		CategoryID: categoryID,
@@ -152,7 +154,7 @@ func (c *Client) GetLastExpense() (*map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("https://api.notion.com/v1/databases/%s/query", c.dbID), bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/databases/%s/query", APIBaseURL, c.dbID), bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -184,15 +186,7 @@ func (c *Client) GetLastExpense() (*map[string]interface{}, error) {
 func ParseLastExpense(raw map[string]interface{}) LastExpense {
 	props, _ := raw["properties"].(map[string]interface{})
 
-	name := ""
-	if nameProp, ok := props["Name"].(map[string]interface{}); ok {
-		if titles, ok := nameProp["title"].([]interface{}); ok && len(titles) > 0 {
-			if first, ok := titles[0].(map[string]interface{}); ok {
-				name, _ = first["plain_text"].(string)
-			}
-		}
-	}
-
+	name := getTitle(props, "Name")
 	amount := getNestedFloat(props, "Amount", "number")
 	date := getNestedString(props, "Date", "date", "start")
 
@@ -229,7 +223,7 @@ func ParseLastExpense(raw map[string]interface{}) LastExpense {
 func (c *Client) DeletePage(pageID string) error {
 	body := bytes.NewBufferString(`{"archived": true}`)
 
-	req, err := http.NewRequest("PATCH", "https://api.notion.com/v1/pages/"+pageID, body)
+	req, err := http.NewRequest("PATCH", APIBaseURL+"/pages/"+pageID, body)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -252,6 +246,18 @@ func (c *Client) DeletePage(pageID string) error {
 }
 
 // Helper functions for safe nested map access
+func getTitle(props map[string]interface{}, key string) string {
+	if prop, ok := props[key].(map[string]interface{}); ok {
+		if titles, ok := prop["title"].([]interface{}); ok && len(titles) > 0 {
+			if first, ok := titles[0].(map[string]interface{}); ok {
+				title, _ := first["plain_text"].(string)
+				return title
+			}
+		}
+	}
+	return ""
+}
+
 func getNestedString(m map[string]interface{}, keys ...string) string {
 	current := m
 	for i, key := range keys {

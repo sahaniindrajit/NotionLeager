@@ -18,6 +18,7 @@ notion/
   seed.go             - Hardcoded category definitions
 expense/
   parser.go           - Parse expense text format
+  subscriptions.go    - Monthly recurring subscriptions (/addsubs)
   aggregate.go        - Aggregate by day/category
   dedupe.go           - Webhook deduplication
 telegram/client.go    - Telegram API client
@@ -35,19 +36,27 @@ utils/date.go         - Date range utilities
 ## Commands
 
 - `/start`, `/help` - Show usage
+- `/today` - Today's expenses
 - `/week` - Weekly day-wise summary
 - `/month` - Monthly category breakdown
 - `/summary` - Monthly statistics
 - `/chart` - Pie chart of expenses
 - `/last` - Show last expense
 - `/lastedit` - Edit last expense (interactive)
-- `/last delete` - Delete last expense
+- `/lastdelete` - Delete last expense
+- `/categories` - List categories and their keywords
+- `/subs` - List monthly subscriptions
+- `/addsubs [YYYY-MM]` - Add monthly subscriptions for the current (or given) month; skips ones already added
 
 ## Development
 
 ```bash
 go run cmd/main.go
+go test ./...
 ```
+
+Tests in `handlers/telegram_test.go` drive the webhook against fake Notion/Telegram servers
+(`notion.APIBaseURL` / `telegram.APIBaseURL` are overridden).
 
 Webhook endpoint: `POST /webhook`
 

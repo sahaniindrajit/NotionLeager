@@ -101,8 +101,12 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			return
 		}
 
-		// Route commands
-		switch text {
+		// Route commands: first word is the command, the rest is its argument
+		cmd, arg, _ := strings.Cut(strings.TrimSpace(text), " ")
+		cmd, _, _ = strings.Cut(cmd, "@") // "/today@MyBot" → "/today"
+		arg = strings.TrimSpace(arg)
+
+		switch cmd {
 		case "/start":
 			handleStart(b)
 		case "/help":
@@ -121,6 +125,14 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			handleLastEdit(b)
 		case "/lastdelete":
 			handleLastDelete(b)
+		case "/today":
+			handleToday(b)
+		case "/categories":
+			handleCategories(b)
+		case "/subs":
+			handleSubs(b)
+		case "/addsubs":
+			handleAddSubs(b, arg)
 		default:
 			handleExpense(b, text)
 		}
@@ -141,6 +153,7 @@ Add expense:
 • Lunch, 450, Food, Office lunch
 
 Commands:
+• /today    → Today's expenses
 • /week     → This week's expenses (day-wise)
 • /month    → This month's expenses (category-wise)
 • /summary  → Monthly spending summary
@@ -148,12 +161,129 @@ Commands:
 • /last     → View last expense
 • /lastedit → Edit last expense
 • /lastdelete → Delete last expense
+• /categories → List all categories
+• /subs     → List monthly subscriptions
+• /addsubs  → Add this month's subscriptions
+• /addsubs 2026-10 → Add subscriptions for a given month
 • /help     → Show this help
  
 Notes:
 • Amount is in INR (₹)
 • Date defaults to today
 • Only your messages are processed`)
+}
+
+func handleToday(b bot) {
+	now := time.Now()
+	rows, err := notionClient.GetExpensesByDateRange(now, now)
+	if err != nil {
+		b.send("❌ Failed to fetch today's expenses")
+		return
+	}
+
+	title := "🗓 Today — " + now.Format("Mon, 02 Jan")
+	if len(rows) == 0 {
+		b.send(title + "\n\nNo expenses recorded.")
+		return
+	}
+
+	var total float64
+	var sb strings.Builder
+	for _, r := range rows {
+		total += r.Amount
+		fmt.Fprintf(&sb, "• %s — ₹%.2f (%s)\n", r.Name, r.Amount, r.Category)
+	}
+
+	b.send(fmt.Sprintf("%s — ₹%.2f\n\n%s", title, total, sb.String()))
+}
+
+func handleCategories(b bot) {
+	var sb strings.Builder
+	sb.WriteString("🏷 Categories\n")
+	for _, c := range CategoryResolver.Categories() {
+		fmt.Fprintf(&sb, "\n• %s", c.Name)
+		if kws := CategoryResolver.Keywords(c.Name); len(kws) > 0 {
+			fmt.Fprintf(&sb, "\n   %s", strings.Join(kws, ", "))
+		}
+	}
+	sb.WriteString("\n\nUnmatched categories go to Miscellaneous.")
+	b.send(sb.String())
+}
+
+func handleSubs(b bot) {
+	var total float64
+	var sb strings.Builder
+	for _, s := range expense.MonthlySubscriptions {
+		total += s.Amount
+		fmt.Fprintf(&sb, "• %s — ₹%.2f on day %d\n", s.Name, s.Amount, s.Day)
+	}
+	b.send(fmt.Sprintf("🔁 Monthly Subscriptions — ₹%.2f\n\n%s\nUse /addsubs to add them for this month.", total, sb.String()))
+}
+
+// handleAddSubs adds every monthly subscription for the given month ("YYYY-MM",
+// or the current month when empty), skipping any already recorded on its date.
+func handleAddSubs(b bot, arg string) {
+	now := time.Now()
+	year, month := now.Year(), now.Month()
+	if arg != "" {
+		t, err := time.ParseInLocation("2006-01", arg, now.Location())
+		if err != nil {
+			b.send("❌ Invalid month\n\nUse /addsubs or /addsubs YYYY-MM")
+			return
+		}
+		year, month = t.Year(), t.Month()
+	}
+
+	monthStart := time.Date(year, month, 1, 0, 0, 0, 0, now.Location())
+	monthEnd := monthStart.AddDate(0, 1, -1)
+	existing, err := notionClient.GetExpensesByDateRange(monthStart, monthEnd)
+	if err != nil {
+		b.send("❌ Failed to check existing expenses, nothing added")
+		return
+	}
+
+	seen := make(map[string]bool, len(existing))
+	for _, e := range existing {
+		seen[subKey(e.Name, e.Date)] = true
+	}
+
+	var added, skipped, failed strings.Builder
+	var total float64
+	for _, s := range expense.MonthlySubscriptions {
+		date := s.DateIn(year, month, now.Location())
+		line := fmt.Sprintf("• %s — ₹%.2f on %s\n", s.Name, s.Amount, date.Format("02 Jan"))
+
+		if seen[subKey(s.Name, date)] {
+			skipped.WriteString(line)
+			continue
+		}
+
+		category := CategoryResolver.Resolve(s.Category)
+		if err := notionClient.CreateExpenseOn(date, s.Name, s.Amount, category.ID, ""); err != nil {
+			log.Printf("Failed to add subscription %s: %v", s.Name, err)
+			failed.WriteString(line)
+			continue
+		}
+		total += s.Amount
+		added.WriteString(line)
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "🔁 Subscriptions — %s\n", monthStart.Format("January 2006"))
+	if added.Len() > 0 {
+		fmt.Fprintf(&sb, "\n✅ Added (₹%.2f)\n%s", total, added.String())
+	}
+	if skipped.Len() > 0 {
+		fmt.Fprintf(&sb, "\n⏭ Already added\n%s", skipped.String())
+	}
+	if failed.Len() > 0 {
+		fmt.Fprintf(&sb, "\n❌ Failed\n%s", failed.String())
+	}
+	b.send(sb.String())
+}
+
+func subKey(name string, date time.Time) string {
+	return strings.ToLower(strings.TrimSpace(name)) + "|" + date.Format("2006-01-02")
 }
 
 func handleWeek(b bot) {
