@@ -180,6 +180,12 @@ func buildAliases() map[string]string {
 		"work":     "Business",
 		"client":   "Business",
 
+		// Cash (ATM withdrawals)
+		"atm":        "Cash",
+		"withdraw":   "Cash",
+		"withdrawal": "Cash",
+		"withdrawn":  "Cash",
+
 		// Donation
 		"donation": "Donation",
 		"donate":   "Donation",

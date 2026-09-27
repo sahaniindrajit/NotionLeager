@@ -9,18 +9,20 @@ import (
 )
 
 type ExpenseRow struct {
-	Name       string
-	Date       time.Time
-	Amount     float64
-	CategoryID string
-	Category   string
+	ID           string
+	WithdrawalID string // Cash Expenses only: the withdrawal page this was paid from
+	Name         string
+	Date         time.Time
+	Amount       float64
+	CategoryID   string
+	Category     string
 }
 
 type queryRequest struct {
 	Filter struct {
 		And []interface{} `json:"and"`
 	} `json:"filter"`
-	Sorts       []map[string]string `json:"sorts"`
+	Sorts       []map[string]string `json:"sorts,omitempty"`
 	StartCursor *string             `json:"start_cursor,omitempty"`
 	PageSize    int                 `json:"page_size"`
 }
@@ -41,23 +43,72 @@ type LastExpense struct {
 }
 
 func (c *Client) GetExpensesByDateRange(start time.Time, end time.Time) ([]ExpenseRow, error) {
+	return c.query(c.dbID, dateRangeFilter(start, end), dateAscending, 0)
+}
+
+// GetCashExpensesByDateRange returns Cash Expenses items dated within the range.
+func (c *Client) GetCashExpensesByDateRange(start time.Time, end time.Time) ([]ExpenseRow, error) {
+	return c.query(c.cashDBID, dateRangeFilter(start, end), dateAscending, 0)
+}
+
+// GetWithdrawals returns the most recent cash withdrawals (Cash category), newest first.
+func (c *Client) GetWithdrawals(limit int) ([]ExpenseRow, error) {
+	filter := []interface{}{relationContains("Category", CashCategoryID)}
+	sorts := []map[string]string{
+		{"property": "Date", "direction": "descending"},
+		{"timestamp": "created_time", "direction": "descending"},
+	}
+	return c.query(c.dbID, filter, sorts, limit)
+}
+
+// GetCashSpentFrom returns the total of Cash Expenses items linked to a withdrawal.
+func (c *Client) GetCashSpentFrom(withdrawalID string) (float64, error) {
+	rows, err := c.query(c.cashDBID, []interface{}{relationContains("Withdrawal", withdrawalID)}, nil, 0)
+	if err != nil {
+		return 0, err
+	}
+	var total float64
+	for _, r := range rows {
+		total += r.Amount
+	}
+	return total, nil
+}
+
+var dateAscending = []map[string]string{{"property": "Date", "direction": "ascending"}}
+
+func dateRangeFilter(start, end time.Time) []interface{} {
+	return []interface{}{
+		map[string]interface{}{
+			"property": "Date",
+			"date":     map[string]string{"on_or_after": start.Format("2006-01-02")},
+		},
+		map[string]interface{}{
+			"property": "Date",
+			"date":     map[string]string{"on_or_before": end.Format("2006-01-02")},
+		},
+	}
+}
+
+func relationContains(property, pageID string) map[string]interface{} {
+	return map[string]interface{}{
+		"property": property,
+		"relation": map[string]string{"contains": pageID},
+	}
+}
+
+// query runs a filtered database query, following pagination. limit 0 means no limit.
+func (c *Client) query(dbID string, filters []interface{}, sorts []map[string]string, limit int) ([]ExpenseRow, error) {
 	// Pre-allocate with reasonable capacity
 	all := make([]ExpenseRow, 0, 100)
 	var cursor *string
 
 	for {
 		reqBody := queryRequest{PageSize: 100}
-		reqBody.Filter.And = []interface{}{
-			map[string]interface{}{
-				"property": "Date",
-				"date":     map[string]string{"on_or_after": start.Format("2006-01-02")},
-			},
-			map[string]interface{}{
-				"property": "Date",
-				"date":     map[string]string{"on_or_before": end.Format("2006-01-02")},
-			},
+		if limit > 0 && limit < 100 {
+			reqBody.PageSize = limit
 		}
-		reqBody.Sorts = []map[string]string{{"property": "Date", "direction": "ascending"}}
+		reqBody.Filter.And = filters
+		reqBody.Sorts = sorts
 		reqBody.StartCursor = cursor
 
 		body, err := json.Marshal(reqBody)
@@ -65,7 +116,7 @@ func (c *Client) GetExpensesByDateRange(start time.Time, end time.Time) ([]Expen
 			return nil, fmt.Errorf("failed to marshal request: %w", err)
 		}
 
-		req, err := http.NewRequest("POST", fmt.Sprintf("%s/databases/%s/query", APIBaseURL, c.dbID), bytes.NewBuffer(body))
+		req, err := http.NewRequest("POST", fmt.Sprintf("%s/databases/%s/query", APIBaseURL, dbID), bytes.NewBuffer(body))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
@@ -100,12 +151,15 @@ func (c *Client) GetExpensesByDateRange(start time.Time, end time.Time) ([]Expen
 			}
 		}
 
-		if !res.HasMore {
+		if !res.HasMore || (limit > 0 && len(all) >= limit) {
 			break
 		}
 		cursor = res.NextCursor
 	}
 
+	if limit > 0 && len(all) > limit {
+		all = all[:limit]
+	}
 	return all, nil
 }
 
@@ -122,24 +176,17 @@ func parseExpenseRow(raw map[string]interface{}) (ExpenseRow, error) {
 	// Amount
 	amount := getNestedFloat(props, "Amount", "number")
 
-	// Category relation
-	categoryID := ""
-	if catProp, ok := props["Category"].(map[string]interface{}); ok {
-		if rel, ok := catProp["relation"].([]interface{}); ok && len(rel) > 0 {
-			if first, ok := rel[0].(map[string]interface{}); ok {
-				if id, ok := first["id"].(string); ok {
-					categoryID = id
-				}
-			}
-		}
-	}
+	categoryID := firstRelationID(props, "Category")
+	id, _ := raw["id"].(string)
 
 	return ExpenseRow{
-		Name:       getTitle(props, "Name"),
-		Date:       date,
-		Amount:     amount,
-		CategoryID: categoryID,
-		Category:   ResolveCategoryName(categoryID),
+		ID:           id,
+		WithdrawalID: firstRelationID(props, "Withdrawal"),
+		Name:         getTitle(props, "Name"),
+		Date:         date,
+		Amount:       amount,
+		CategoryID:   categoryID,
+		Category:     ResolveCategoryName(categoryID),
 	}, nil
 }
 
@@ -246,6 +293,18 @@ func (c *Client) DeletePage(pageID string) error {
 }
 
 // Helper functions for safe nested map access
+func firstRelationID(props map[string]interface{}, key string) string {
+	if prop, ok := props[key].(map[string]interface{}); ok {
+		if rel, ok := prop["relation"].([]interface{}); ok && len(rel) > 0 {
+			if first, ok := rel[0].(map[string]interface{}); ok {
+				id, _ := first["id"].(string)
+				return id
+			}
+		}
+	}
+	return ""
+}
+
 func getTitle(props map[string]interface{}, key string) string {
 	if prop, ok := props[key].(map[string]interface{}); ok {
 		if titles, ok := prop["title"].([]interface{}); ok && len(titles) > 0 {

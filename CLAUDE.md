@@ -47,6 +47,17 @@ utils/date.go         - Date range utilities
 - `/categories` - List categories and their keywords
 - `/subs` - List monthly subscriptions
 - `/addsubs [YYYY-MM]` - Add monthly subscriptions for the current (or given) month; skips ones already added
+- `/withdraw 500 [note]` - Record an ATM withdrawal in the main table (Cash category)
+- `/cash Name, Amount, Category, [Description]` - Record a cash spend in the Cash Expenses DB, linked to the latest withdrawal
+- `/cashleft` - Remaining cash per recent withdrawal
+- `/cashmonth` - This month's cash spends by category
+
+## Cash Tracking
+
+- Main DB = bank transactions only; a withdrawal is one row with category Cash (`notion.CashCategoryID`).
+- Cash Expenses DB (`NOTION_CASH_DB_ID`, optional) holds items paid in cash, each with a
+  `Withdrawal` relation to the withdrawal page. Cash items are never added to the main DB,
+  so bank reports don't double count.
 
 ## Development
 

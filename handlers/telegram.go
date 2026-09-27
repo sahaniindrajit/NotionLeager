@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"notionLeager/charts"
 	"notionLeager/config"
@@ -91,7 +92,7 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 
 		// Thread-safe client initialization (only once)
 		clientOnce.Do(func() {
-			notionClient = notion.NewClient(cfg.NotionAPIKey, cfg.NotionExpenseDB)
+			notionClient = notion.NewClient(cfg.NotionAPIKey, cfg.NotionExpenseDB, cfg.NotionCashDB)
 		})
 
 		b := bot{token: cfg.TelegramBotToken, chatID: update.Message.Chat.ID}
@@ -133,6 +134,14 @@ func TelegramWebhook(cfg config.Config) http.HandlerFunc {
 			handleSubs(b)
 		case "/addsubs":
 			handleAddSubs(b, arg)
+		case "/withdraw":
+			handleWithdraw(b, arg)
+		case "/cash":
+			handleCash(b, arg)
+		case "/cashleft":
+			handleCashLeft(b)
+		case "/cashmonth":
+			handleCashMonth(b)
 		default:
 			handleExpense(b, text)
 		}
@@ -165,6 +174,12 @@ Commands:
 • /subs     → List monthly subscriptions
 • /addsubs  → Add this month's subscriptions
 • /addsubs 2026-10 → Add subscriptions for a given month
+
+Cash:
+• /withdraw 500 → Record an ATM withdrawal
+• /cash Tea, 20, Food → Record a cash spend
+• /cashleft  → Cash left from recent withdrawals
+• /cashmonth → This month's cash spends by category
 • /help     → Show this help
  
 Notes:
@@ -181,8 +196,17 @@ func handleToday(b bot) {
 		return
 	}
 
+	var cashRows []notion.ExpenseRow
+	if notionClient.HasCashDB() {
+		cashRows, err = notionClient.GetCashExpensesByDateRange(now, now)
+		if err != nil {
+			b.send("❌ Failed to fetch today's cash expenses")
+			return
+		}
+	}
+
 	title := "🗓 Today — " + now.Format("Mon, 02 Jan")
-	if len(rows) == 0 {
+	if len(rows) == 0 && len(cashRows) == 0 {
 		b.send(title + "\n\nNo expenses recorded.")
 		return
 	}
@@ -192,6 +216,16 @@ func handleToday(b bot) {
 	for _, r := range rows {
 		total += r.Amount
 		fmt.Fprintf(&sb, "• %s — ₹%.2f (%s)\n", r.Name, r.Amount, r.Category)
+	}
+
+	if len(cashRows) > 0 {
+		var cashTotal float64
+		var cb strings.Builder
+		for _, r := range cashRows {
+			cashTotal += r.Amount
+			fmt.Fprintf(&cb, "• %s — ₹%.2f (%s)\n", r.Name, r.Amount, r.Category)
+		}
+		fmt.Fprintf(&sb, "\n💵 Paid in cash — ₹%.2f\n%s", cashTotal, cb.String())
 	}
 
 	b.send(fmt.Sprintf("%s — ₹%.2f\n\n%s", title, total, sb.String()))
@@ -284,6 +318,145 @@ func handleAddSubs(b bot, arg string) {
 
 func subKey(name string, date time.Time) string {
 	return strings.ToLower(strings.TrimSpace(name)) + "|" + date.Format("2006-01-02")
+}
+
+const cashNotSetUp = "💵 Cash tracking isn't set up.\n\nSet NOTION_CASH_DB_ID to your Cash Expenses database."
+
+// handleWithdraw records an ATM withdrawal in the main table under the Cash category.
+// Usage: /withdraw 500 [note]
+func handleWithdraw(b bot, arg string) {
+	amountStr, note, _ := strings.Cut(arg, " ")
+	amount, err := strconv.ParseFloat(strings.TrimPrefix(strings.TrimSpace(amountStr), "₹"), 64)
+	if err != nil || amount <= 0 {
+		b.send("❌ Invalid amount\n\nUse: /withdraw 500")
+		return
+	}
+
+	name := "Cash withdrawal"
+	if note = strings.TrimSpace(note); note != "" {
+		name += " — " + note
+	}
+
+	if err := notionClient.CreateExpense(name, amount, notion.CashCategoryID, ""); err != nil {
+		b.send("❌ Failed to save withdrawal")
+		return
+	}
+
+	b.send(fmt.Sprintf("🏧 Withdrawal saved — ₹%.2f\n\nLog what you spend it on with:\n/cash Tea, 20, Food", amount))
+}
+
+// handleCash records an item paid in cash, linked to the latest withdrawal.
+// Usage: /cash Name, Amount, Category, [Description]
+func handleCash(b bot, arg string) {
+	if !notionClient.HasCashDB() {
+		b.send(cashNotSetUp)
+		return
+	}
+
+	exp, err := expense.Parse(arg)
+	if err != nil {
+		b.send("❌ Invalid format\n\nUse:\n/cash Name, Amount, Category, Description (optional)")
+		return
+	}
+
+	withdrawals, err := notionClient.GetWithdrawals(1)
+	if err != nil {
+		b.send("❌ Failed to find your latest withdrawal")
+		return
+	}
+	if len(withdrawals) == 0 {
+		b.send("❌ No cash withdrawal found.\n\nRecord one first with /withdraw 500")
+		return
+	}
+	w := withdrawals[0]
+
+	category := CategoryResolver.Resolve(exp.CategoryRaw)
+	if err := notionClient.CreateCashExpense(time.Now(), exp.Name, exp.Amount, category.ID, exp.Description, w.ID); err != nil {
+		b.send("❌ Failed to save cash expense")
+		return
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "💵 Cash spend saved\n\nName: %s\nAmount: ₹%.2f\nCategory: %s", exp.Name, exp.Amount, category.Name)
+	if exp.Description != "" {
+		sb.WriteString("\nDescription: ")
+		sb.WriteString(exp.Description)
+	}
+	if spent, err := notionClient.GetCashSpentFrom(w.ID); err == nil {
+		fmt.Fprintf(&sb, "\n\nFrom ₹%.2f withdrawn on %s — ₹%.2f left", w.Amount, w.Date.Format("02 Jan"), w.Amount-spent)
+	}
+	b.send(sb.String())
+}
+
+// handleCashLeft shows how much of each recent withdrawal is still unaccounted for.
+func handleCashLeft(b bot) {
+	if !notionClient.HasCashDB() {
+		b.send(cashNotSetUp)
+		return
+	}
+
+	withdrawals, err := notionClient.GetWithdrawals(5)
+	if err != nil {
+		b.send("❌ Failed to fetch withdrawals")
+		return
+	}
+	if len(withdrawals) == 0 {
+		b.send("💵 No cash withdrawals recorded.\n\nRecord one with /withdraw 500")
+		return
+	}
+
+	var totalLeft float64
+	var sb strings.Builder
+	for i, w := range withdrawals {
+		spent, err := notionClient.GetCashSpentFrom(w.ID)
+		if err != nil {
+			b.send("❌ Failed to fetch cash expenses")
+			return
+		}
+		left := w.Amount - spent
+		// Always show the latest withdrawal; older ones only while cash is left.
+		if i > 0 && math.Abs(left) < 0.005 {
+			continue
+		}
+		totalLeft += left
+		fmt.Fprintf(&sb, "• ₹%.2f on %s — ₹%.2f spent, ₹%.2f left\n", w.Amount, w.Date.Format("02 Jan"), spent, left)
+	}
+
+	b.send(fmt.Sprintf("💵 Cash Left — ₹%.2f\n\n%s", totalLeft, sb.String()))
+}
+
+// handleCashMonth breaks down this month's cash spends by category.
+func handleCashMonth(b bot) {
+	if !notionClient.HasCashDB() {
+		b.send(cashNotSetUp)
+		return
+	}
+
+	start, end := utils.ThisMonthRange(time.Now())
+	rows, err := notionClient.GetCashExpensesByDateRange(start, end)
+	if err != nil {
+		b.send("❌ Failed to fetch cash expenses")
+		return
+	}
+
+	title := "💵 Cash — " + time.Now().Format("January 2006")
+	if len(rows) == 0 {
+		b.send(title + "\n\nNo cash spends recorded.")
+		return
+	}
+
+	totals := expense.AggregateByCategory(rows)
+	var total float64
+	for _, c := range totals {
+		total += c.Amount
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s — ₹%.2f\n\n", title, total)
+	for _, c := range totals {
+		fmt.Fprintf(&sb, "%-18s ₹%.2f\n", c.Category, c.Amount)
+	}
+	b.send(sb.String())
 }
 
 func handleWeek(b bot) {
