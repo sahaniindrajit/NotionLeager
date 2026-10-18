@@ -12,6 +12,7 @@ type Config struct {
 	TelegramBotToken string
 	NotionAPIKey     string
 	NotionExpenseDB  string
+	NotionCashDB     string // optional: Cash Expenses database; cash commands are disabled without it
 }
 
 func Load() *Config {
@@ -23,6 +24,7 @@ func Load() *Config {
 		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
 		NotionAPIKey:     os.Getenv("NOTION_API_KEY"),
 		NotionExpenseDB:  os.Getenv("NOTION_EXPENSE_DB_ID"),
+		NotionCashDB:     os.Getenv("NOTION_CASH_DB_ID"),
 	}
 
 	if cfg.Port == "" {

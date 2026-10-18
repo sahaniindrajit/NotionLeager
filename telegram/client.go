@@ -26,6 +26,9 @@ var httpClient = &http.Client{
 	},
 }
 
+// APIBaseURL is the Telegram Bot API root. It is a variable so tests can point it at a fake server.
+var APIBaseURL = "https://api.telegram.org"
+
 type SendMessageRequest struct {
 	ChatID int64  `json:"chat_id"`
 	Text   string `json:"text"`
@@ -37,7 +40,7 @@ func SendMessage(token string, chatID int64, text string) error {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.telegram.org/bot"+token+"/sendMessage", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", APIBaseURL+"/bot"+token+"/sendMessage", bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -53,7 +56,7 @@ func SendMessage(token string, chatID int64, text string) error {
 }
 
 func SendPhoto(token string, chatID int64, imagePath string, caption string) error {
-	url := "https://api.telegram.org/bot" + token + "/sendPhoto"
+	url := APIBaseURL + "/bot" + token + "/sendPhoto"
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
