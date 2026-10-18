@@ -112,9 +112,9 @@ Examples:
 | `/month` | This month's expenses by category |
 | `/summary` | Monthly statistics |
 | `/chart` | Pie chart of expenses |
-| `/last` | Show last expense |
-| `/lastedit` | Edit last expense |
-| `/lastdelete` | Delete last expense |
+| `/last` | Show the last expense you added (bank or cash) |
+| `/lastedit` | Edit the last expense you added (bank or cash) |
+| `/lastdelete` | Delete the last expense you added (bank or cash) |
 | `/categories` | List all categories and their keywords |
 | `/subs` | List configured monthly subscriptions |
 | `/addsubs` | Add all monthly subscriptions for the current month |

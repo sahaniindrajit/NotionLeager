@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"notionLeager/config"
 	"notionLeager/notion"
@@ -36,6 +38,7 @@ type fakePage struct {
 	DB           string
 	WithdrawalID string
 	Summary      string
+	Archived     bool
 }
 
 // fakeNotion implements the subset of the Notion API the bot uses:
@@ -43,6 +46,10 @@ type fakePage struct {
 type fakeNotion struct {
 	mu    sync.Mutex
 	pages []fakePage // in creation order
+
+	// distinctTimes gives each page its own created_time (one second apart)
+	// instead of all sharing one minute.
+	distinctTimes bool
 }
 
 type textItem struct {
@@ -87,6 +94,10 @@ func (f *fakeNotion) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == "POST" && r.URL.Path == "/pages":
 		f.createPage(w, r)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/pages/"):
+		f.getPage(w, strings.TrimPrefix(r.URL.Path, "/pages/"))
+	case r.Method == "PATCH" && strings.HasPrefix(r.URL.Path, "/pages/"):
+		f.updatePage(w, r, strings.TrimPrefix(r.URL.Path, "/pages/"))
 	case r.Method == "POST" && (r.URL.Path == "/databases/"+testDBID+"/query" || r.URL.Path == "/databases/"+testCashDB+"/query"):
 		f.query(w, r)
 	default:
@@ -130,6 +141,94 @@ func (f *fakeNotion) createPage(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"object": "page", "id": page.ID})
 }
 
+// getPage returns a page like Notion does, including deleted ones (archived: true).
+func (f *fakeNotion) getPage(w http.ResponseWriter, id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, p := range f.pages {
+		if p.ID == id {
+			out := f.pageJSON(p, i)
+			out["archived"] = p.Archived
+			json.NewEncoder(w).Encode(out)
+			return
+		}
+	}
+	http.Error(w, "not found", http.StatusNotFound)
+}
+
+// sameMinute makes every page share one created_time, like real Notion does for
+// pages added within the same minute, so tests can't rely on it for ordering.
+var sameMinute = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02T15:04:05.000Z")
+
+func (f *fakeNotion) pageJSON(p fakePage, seq int) map[string]interface{} {
+	props := map[string]interface{}{
+		"Name":     map[string]interface{}{"title": []interface{}{map[string]interface{}{"plain_text": p.Name}}},
+		"Amount":   map[string]interface{}{"number": p.Amount},
+		"Category": map[string]interface{}{"relation": []interface{}{map[string]interface{}{"id": p.CategoryID}}},
+		"Date":     map[string]interface{}{"date": map[string]interface{}{"start": p.Date}},
+	}
+	if p.DB == testCashDB {
+		props["Withdrawal"] = map[string]interface{}{"relation": []interface{}{map[string]interface{}{"id": p.WithdrawalID}}}
+	}
+	if p.Summary != "" {
+		props["Summary"] = map[string]interface{}{"rich_text": []interface{}{map[string]interface{}{"plain_text": p.Summary}}}
+	}
+	created := sameMinute
+	if f.distinctTimes {
+		created = time.Date(2026, 1, 1, 0, 0, seq, 0, time.UTC).Format("2006-01-02T15:04:05.000Z")
+	}
+	return map[string]interface{}{"id": p.ID, "created_time": created, "properties": props}
+}
+
+// updatePage handles archiving (delete) and the property edits /lastedit sends.
+func (f *fakeNotion) updatePage(w http.ResponseWriter, r *http.Request, id string) {
+	var req struct {
+		Archived   bool `json:"archived"`
+		Properties struct {
+			Name *struct {
+				Title []textItem `json:"title"`
+			} `json:"Name"`
+			Amount *struct {
+				Number float64 `json:"number"`
+			} `json:"Amount"`
+			Summary *struct {
+				RichText []textItem `json:"rich_text"`
+			} `json:"Summary"`
+			Description *json.RawMessage `json:"Description"`
+		} `json:"properties"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Properties.Description != nil {
+		http.Error(w, "Description is not a property that exists", http.StatusBadRequest)
+		return
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.pages {
+		p := &f.pages[i]
+		if p.ID != id || p.Archived {
+			continue
+		}
+		p.Archived = req.Archived
+		if n := req.Properties.Name; n != nil && len(n.Title) > 0 {
+			p.Name = n.Title[0].Text.Content
+		}
+		if a := req.Properties.Amount; a != nil {
+			p.Amount = a.Number
+		}
+		if d := req.Properties.Summary; d != nil && len(d.RichText) > 0 {
+			p.Summary = d.RichText[0].Text.Content
+		}
+		json.NewEncoder(w).Encode(map[string]string{"object": "page", "id": id})
+		return
+	}
+	http.Error(w, "not found", http.StatusNotFound)
+}
+
 func (f *fakeNotion) query(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Filter struct {
@@ -157,7 +256,7 @@ func (f *fakeNotion) query(w http.ResponseWriter, r *http.Request) {
 	seq := map[string]int{}
 	for i, p := range f.pages {
 		seq[p.ID] = i
-		if p.DB != db {
+		if p.DB != db || p.Archived {
 			continue
 		}
 		ok := true
@@ -206,27 +305,21 @@ func (f *fakeNotion) query(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := []map[string]interface{}{}
+	f.mu.Lock()
 	for _, p := range matched {
-		props := map[string]interface{}{
-			"Name":     map[string]interface{}{"title": []interface{}{map[string]interface{}{"plain_text": p.Name}}},
-			"Amount":   map[string]interface{}{"number": p.Amount},
-			"Category": map[string]interface{}{"relation": []interface{}{map[string]interface{}{"id": p.CategoryID}}},
-			"Date":     map[string]interface{}{"date": map[string]interface{}{"start": p.Date}},
-		}
-		if p.DB == testCashDB {
-			props["Withdrawal"] = map[string]interface{}{"relation": []interface{}{map[string]interface{}{"id": p.WithdrawalID}}}
-		}
-		results = append(results, map[string]interface{}{"id": p.ID, "properties": props})
+		results = append(results, f.pageJSON(p, seq[p.ID]))
 	}
+	f.mu.Unlock()
 	json.NewEncoder(w).Encode(map[string]interface{}{"results": results, "has_more": false})
 }
 
+// pagesIn returns the non-deleted pages in a database, in creation order.
 func (f *fakeNotion) pagesIn(db string) []fakePage {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var out []fakePage
 	for _, p := range f.pages {
-		if p.DB == db {
+		if p.DB == db && !p.Archived {
 			out = append(out, p)
 		}
 	}

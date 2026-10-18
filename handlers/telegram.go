@@ -557,7 +557,7 @@ func handleChart(b bot) {
 }
 
 func handleLast(b bot) {
-	raw, err := notionClient.GetLastExpense()
+	raw, isCash, err := notionClient.GetLastExpense()
 	if err != nil || raw == nil {
 		b.send("No expenses found.")
 		return
@@ -565,8 +565,8 @@ func handleLast(b bot) {
 
 	e := notion.ParseLastExpense(*raw)
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "🧾 Last Expense\n\nName: %s\nAmount: ₹%.2f\nCategory: %s\nDate: %s",
-		e.Name, e.Amount, e.Category, e.Date)
+	fmt.Fprintf(&sb, "🧾 Last Expense%s\n\nName: %s\nAmount: ₹%.2f\nCategory: %s\nDate: %s",
+		cashLabel(isCash), e.Name, e.Amount, e.Category, e.Date)
 
 	if e.Description != "" {
 		sb.WriteString("\nDescription: ")
@@ -577,7 +577,7 @@ func handleLast(b bot) {
 }
 
 func handleLastEdit(b bot) {
-	raw, err := notionClient.GetLastExpense()
+	raw, isCash, err := notionClient.GetLastExpense()
 	if err != nil || raw == nil {
 		b.send("No expense found to edit.")
 		return
@@ -586,11 +586,11 @@ func handleLastEdit(b bot) {
 	e := notion.ParseLastExpense(*raw)
 	setEditSession(b.chatID, &EditState{PageID: e.PageID})
 
-	b.send("✏️ What do you want to edit?\n\nName | Amount | Category | Description")
+	b.send(fmt.Sprintf("✏️ Editing%s: %s — ₹%.2f\n\nWhat do you want to edit?\n\nName | Amount | Category | Description", cashLabel(isCash), e.Name, e.Amount))
 }
 
 func handleLastDelete(b bot) {
-	raw, err := notionClient.GetLastExpense()
+	raw, isCash, err := notionClient.GetLastExpense()
 	if err != nil || raw == nil {
 		b.send("No expense found to delete.")
 		return
@@ -602,7 +602,14 @@ func handleLastDelete(b bot) {
 		return
 	}
 
-	b.send(fmt.Sprintf("🗑 Deleted last expense:\n%s — ₹%.2f", e.Name, e.Amount))
+	b.send(fmt.Sprintf("🗑 Deleted last expense%s:\n%s — ₹%.2f", cashLabel(isCash), e.Name, e.Amount))
+}
+
+func cashLabel(isCash bool) string {
+	if isCash {
+		return " (cash)"
+	}
+	return ""
 }
 
 func handleEditSession(b bot, text string) bool {
@@ -670,7 +677,7 @@ func buildUpdateProps(field, value string, b bot) map[string]interface{} {
 			"relation": []map[string]string{{"id": cat.ID}},
 		}
 	case "Description":
-		props["Description"] = map[string]interface{}{
+		props["Summary"] = map[string]interface{}{
 			"rich_text": []map[string]interface{}{
 				{"text": map[string]string{"content": value}},
 			},
