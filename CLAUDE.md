@@ -41,9 +41,9 @@ utils/date.go         - Date range utilities
 - `/month` - Monthly category breakdown
 - `/summary` - Monthly statistics
 - `/chart` - Pie chart of expenses
-- `/last` - Show last expense
-- `/lastedit` - Edit last expense (interactive)
-- `/lastdelete` - Delete last expense
+- `/last` - Show the most recently added expense (main or Cash Expenses table)
+- `/lastedit` - Edit the most recently added expense (interactive)
+- `/lastdelete` - Delete the most recently added expense
 - `/categories` - List categories and their keywords
 - `/subs` - List monthly subscriptions
 - `/addsubs [YYYY-MM]` - Add monthly subscriptions for the current (or given) month; skips ones already added

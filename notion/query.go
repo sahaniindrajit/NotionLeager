@@ -190,10 +190,40 @@ func parseExpenseRow(raw map[string]interface{}) (ExpenseRow, error) {
 	}, nil
 }
 
-func (c *Client) GetLastExpense() (*map[string]interface{}, error) {
+// GetLastExpense returns the most recently created expense across the main table
+// and, when configured, the Cash Expenses table. isCash reports which one it came from.
+func (c *Client) GetLastExpense() (raw *map[string]interface{}, isCash bool, err error) {
+	if raw, isCash, err = c.newestRemembered(); raw != nil || err != nil {
+		return raw, isCash, err
+	}
+
+	raw, err = c.lastCreated(c.dbID)
+	if err != nil || !c.HasCashDB() {
+		return raw, false, err
+	}
+
+	cash, err := c.lastCreated(c.cashDBID)
+	if err != nil {
+		return nil, false, err
+	}
+	if cash != nil && (raw == nil || createdTime(*cash) > createdTime(*raw)) {
+		return cash, true, nil
+	}
+	return raw, false, nil
+}
+
+// createdTime returns a page's created_time. Notion formats it the same way for
+// every page, so the strings compare in time order.
+func createdTime(page map[string]interface{}) string {
+	t, _ := page["created_time"].(string)
+	return t
+}
+
+// lastCreated returns the newest page in a database by creation time, or nil if it is empty.
+func (c *Client) lastCreated(dbID string) (*map[string]interface{}, error) {
 	reqBody := map[string]interface{}{
 		"page_size": 1,
-		"sorts":     []map[string]string{{"property": "Date", "direction": "descending"}},
+		"sorts":     []map[string]string{{"timestamp": "created_time", "direction": "descending"}},
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -201,7 +231,7 @@ func (c *Client) GetLastExpense() (*map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/databases/%s/query", APIBaseURL, c.dbID), bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/databases/%s/query", APIBaseURL, dbID), bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -215,6 +245,10 @@ func (c *Client) GetLastExpense() (*map[string]interface{}, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("notion query failed: %s", resp.Status)
+	}
 
 	var res struct {
 		Results []map[string]interface{} `json:"results"`
@@ -247,7 +281,7 @@ func ParseLastExpense(raw map[string]interface{}) LastExpense {
 	}
 
 	desc := ""
-	if descProp, ok := props["Description"].(map[string]interface{}); ok {
+	if descProp, ok := props["Summary"].(map[string]interface{}); ok {
 		if arr, ok := descProp["rich_text"].([]interface{}); ok && len(arr) > 0 {
 			if first, ok := arr[0].(map[string]interface{}); ok {
 				desc, _ = first["plain_text"].(string)
@@ -289,6 +323,7 @@ func (c *Client) DeletePage(pageID string) error {
 		return fmt.Errorf("failed to delete page, status=%d", resp.StatusCode)
 	}
 
+	c.forget(pageID)
 	return nil
 }
 
