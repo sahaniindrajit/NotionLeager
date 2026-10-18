@@ -35,6 +35,8 @@ func TestMonthlySubscriptions(t *testing.T) {
 		"YouTube Premium":    {50, 1},
 		"Netflix":            {199, 30},
 		"Google One (30 GB)": {59, 30},
+		"Wispr Flow":         {400, 29},
+		"OVH":                {1622, 3},
 	}
 	if len(MonthlySubscriptions) != len(want) {
 		t.Fatalf("got %d subscriptions, want %d", len(MonthlySubscriptions), len(want))

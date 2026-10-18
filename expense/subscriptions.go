@@ -15,6 +15,8 @@ var MonthlySubscriptions = []Subscription{
 	{Name: "YouTube Premium", Amount: 50, Category: "Subscription", Day: 1},
 	{Name: "Netflix", Amount: 199, Category: "Subscription", Day: 30},
 	{Name: "Google One (30 GB)", Amount: 59, Category: "Subscription", Day: 30},
+	{Name: "Wispr Flow", Amount: 400, Category: "Subscription", Day: 29},
+	{Name: "OVH", Amount: 1622, Category: "Subscription", Day: 3},
 }
 
 // DateIn returns the charge date for the given month. If the month is shorter

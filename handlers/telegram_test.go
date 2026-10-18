@@ -45,18 +45,22 @@ func TestAddSubsCurrentMonth(t *testing.T) {
 	now := time.Now()
 	ym := now.Format("2006-01")
 	day30 := expenseDay(now, 30)
+	day29 := expenseDay(now, 29)
 
 	reply := h.send("/addsubs")
-	mustContain(t, reply, "✅ Added (₹308.00)", "YouTube Premium — ₹50.00", "Netflix — ₹199.00", "Google One (30 GB) — ₹59.00")
+	mustContain(t, reply, "✅ Added (₹2330.00)", "YouTube Premium — ₹50.00", "Netflix — ₹199.00", "Google One (30 GB) — ₹59.00",
+		"Wispr Flow — ₹400.00", "OVH — ₹1622.00")
 
 	want := map[string]expenseFields{
 		"YouTube Premium":    {"YouTube Premium", 50, subsCatID, ym + "-01"},
 		"Netflix":            {"Netflix", 199, subsCatID, day30},
 		"Google One (30 GB)": {"Google One (30 GB)", 59, subsCatID, day30},
+		"Wispr Flow":         {"Wispr Flow", 400, subsCatID, day29},
+		"OVH":                {"OVH", 1622, subsCatID, ym + "-03"},
 	}
 	pages := h.notion.pagesIn(testDBID)
-	if len(pages) != 3 {
-		t.Fatalf("got %d pages, want 3: %+v", len(pages), pages)
+	if len(pages) != 5 {
+		t.Fatalf("got %d pages, want 5: %+v", len(pages), pages)
 	}
 	for _, p := range pages {
 		if p.expenseFields != want[p.Name] {
@@ -70,8 +74,8 @@ func TestAddSubsCurrentMonth(t *testing.T) {
 	if strings.Contains(reply, "✅ Added") {
 		t.Errorf("second run added expenses again:\n%s", reply)
 	}
-	if n := len(h.notion.pagesIn(testDBID)); n != 3 {
-		t.Errorf("got %d pages after re-run, want 3", n)
+	if n := len(h.notion.pagesIn(testDBID)); n != 5 {
+		t.Errorf("got %d pages after re-run, want 5", n)
 	}
 }
 
@@ -79,29 +83,32 @@ func TestAddSubsSpecificMonth(t *testing.T) {
 	h := newHarness(t)
 
 	reply := h.send("/addsubs 2027-02")
-	mustContain(t, reply, "February 2027", "✅ Added (₹308.00)")
+	mustContain(t, reply, "February 2027", "✅ Added (₹2330.00)")
 
 	dates := map[string]string{}
 	for _, p := range h.notion.pagesIn(testDBID) {
 		dates[p.Name] = p.Date
 	}
-	if dates["YouTube Premium"] != "2027-02-01" || dates["Netflix"] != "2027-02-28" || dates["Google One (30 GB)"] != "2027-02-28" {
+	if dates["YouTube Premium"] != "2027-02-01" || dates["Netflix"] != "2027-02-28" || dates["Google One (30 GB)"] != "2027-02-28" ||
+		dates["Wispr Flow"] != "2027-02-28" || dates["OVH"] != "2027-02-03" {
 		t.Errorf("unexpected dates for Feb 2027: %v", dates)
 	}
 
 	mustContain(t, h.send("/addsubs feb"), "Invalid month")
-	if n := len(h.notion.pagesIn(testDBID)); n != 3 {
-		t.Errorf("invalid month created pages: got %d, want 3", n)
+	if n := len(h.notion.pagesIn(testDBID)); n != 5 {
+		t.Errorf("invalid month created pages: got %d, want 5", n)
 	}
 }
 
 func TestSubsList(t *testing.T) {
 	h := newHarness(t)
 	mustContain(t, h.send("/subs"),
-		"Monthly Subscriptions — ₹308.00",
+		"Monthly Subscriptions — ₹2330.00",
 		"YouTube Premium — ₹50.00 on day 1",
 		"Netflix — ₹199.00 on day 30",
-		"Google One (30 GB) — ₹59.00 on day 30")
+		"Google One (30 GB) — ₹59.00 on day 30",
+		"Wispr Flow — ₹400.00 on day 29",
+		"OVH — ₹1622.00 on day 3")
 }
 
 func TestCategories(t *testing.T) {
